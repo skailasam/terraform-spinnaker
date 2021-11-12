@@ -1,0 +1,21 @@
+repos:
+- repo: git://github.com/antonbabenko/pre-commit-terraform
+  rev: v1.45.0
+  hooks:
+   - id: terraform_fmt
+   - id: terraform_docs_replace
+   - id: terraform_validate
+- repo: git@github.com:plangrid/plangrid-commitlint.git
+  rev: v1.0.1
+  hooks:
+    - id: plangrid-commitlint
+      stages: [commit-msg]
+      always_run: true
+      pass_filenames: true
+- repo: git://github.com/pre-commit/pre-commit-hooks
+  rev: v3.3.0
+  hooks:
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
+    - id: check-case-conflict
+    - id: check-merge-conflict

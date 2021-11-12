@@ -27,3 +27,11 @@ override.tf.json
 
 # Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
 # example: *tfplan*
+
+# Because we are evil, we also git ignore terraform locks for now...
+*.terraform.lock.hcl
+
+# IDE and pyenv files
+.python-version
+.idea
+.vscode
