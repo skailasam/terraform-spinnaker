@@ -103,26 +103,6 @@ variable "slack_settings" {
   }
 }
 
-variable "istio_gateway_tag" {
-  description = "Tag used for istio gateway"
-  type        = string
-  default     = "1_7_8"
-}
-
-variable "istio_image_hub" {
-  type    = string
-  default = "723151894364.dkr.ecr.us-east-1.amazonaws.com/pg-istio"
-}
-
-variable "gateway_hpa_max_replicas" {
-  type    = number
-  default = 5
-}
-
-variable "gateway_hpa_min_replicas" {
-  type    = number
-  default = 2
-}
 
 variable "spinnaker_aws_role_arn" {
   type = string

@@ -57,295 +57,6 @@ provider "kubernetes" {
   token                  = data.aws_eks_cluster_auth.cluster.token
 }
 
-resource "kubernetes_manifest" "spinnaker-istio-gateway" {
-  manifest = {
-    "apiVersion" = "install.istio.io/v1alpha1"
-    "kind"       = "IstioOperator"
-    "metadata" = {
-      "name"      = "spinnaker-gateway"
-      "namespace" = "istio-system"
-    }
-    "spec" = {
-      "components" = {
-        "egressGateways" = [
-          {
-            "enabled" = false
-            "name"    = "istio-egressgateway"
-          },
-        ]
-        "ingressGateways" = [
-          {
-            "enabled" = false
-            "name"    = "istio-ingressgateway"
-          },
-          {
-            "enabled" = true
-            "k8s" = {
-              "affinity" = {
-                "podAntiAffinity" = {
-                  "preferredDuringSchedulingIgnoredDuringExecution" = [
-                    {
-                      "podAffinityTerm" = {
-                        "labelSelector" = {
-                          "matchExpressions" = [
-                            {
-                              "key"      = "istio"
-                              "operator" = "In"
-                              "values" = [
-                                "ingressgateway-spinnaker-internal",
-                              ]
-                            },
-                          ]
-                        }
-                        "topologyKey" = "kubernetes.io/hostname"
-                      }
-                      "weight" = 100
-                    },
-                  ]
-                }
-              }
-              "hpaSpec" = {
-                "maxReplicas" = var.gateway_hpa_max_replicas
-                "minReplicas" = var.gateway_hpa_min_replicas
-              }
-              "podAnnotations" = {
-                "pg_app" = "istio-ingress-spinnaker"
-              }
-              "priorityClassName" = "system-cluster-critical"
-              "replicaCount"      = var.gateway_hpa_max_replicas
-              "resources" = {
-                "requests" = {
-                  "cpu"    = "800m"
-                  "memory" = "512Mi"
-                }
-              }
-              "service" = {
-                "ports" = [
-                  {
-                    "name"       = "http"
-                    "port"       = "80"
-                    "targetPort" = 8080
-                  },
-                  {
-                    "name"       = "https"
-                    "port"       = 443
-                    "targetPort" = 8443
-                  },
-                ]
-                "type" = "LoadBalancer"
-              }
-              "serviceAnnotations" = {
-                "pg_app"                                                              = "istio-ingress-spinnaker"
-                "service.beta.kubernetes.io/aws-load-balancer-backend-protocol"       = "http"
-                "service.beta.kubernetes.io/aws-load-balancer-internal"               = "true"
-                "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"               = var.internal_gateway_cert_arn
-                "service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy" = "ELBSecurityPolicy-TLS-1-2-2017-01"
-                "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"              = "443"
-                "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"              = "443"
-                "external-dns.alpha.kubernetes.io/hostname"                           = "spinnaker.${var.planfront_url}"
-                "external-dns.alpha.kubernetes.io/ttl"                                = "300"
-              }
-            }
-            "label" = {
-              "app"   = "ingressgateway-spinnaker"
-              "color" = "green"
-              "istio" = "ingressgateway-spinnaker-internal"
-            }
-            "name"      = "istio-ingressgateway-spinnaker-internal"
-            "namespace" = "istio-system"
-          },
-        ]
-      }
-      "hub"     = "${var.istio_image_hub}"
-      "profile" = "empty"
-      "tag"     = "${var.istio_gateway_tag}"
-      "values" = {
-        "gateways" = {
-          "istio-ingressgateway" = {
-            "name" = "istio-ingressgateway-spinnaker-internal"
-            "secretVolumes" = [
-              {
-                "mountPath"  = "/etc/istio/ilbgateway-certs"
-                "name"       = "ilbgateway-certs"
-                "secretName" = "istio-ilbgateway-certs"
-              },
-              {
-                "mountPath"  = "/etc/istio/ilbgateway-ca-certs"
-                "name"       = "ilbgateway-ca-certs"
-                "secretName" = "istio-ilbgateway-ca-certs"
-              },
-            ]
-          }
-        }
-      }
-    }
-  }
-  field_manager {
-    # force field manager conflicts to be overridden
-    force_conflicts = var.force_conflicts
-  }
-}
-
-resource "kubernetes_manifest" "spinnaker-ingress-gateway" {
-  manifest = {
-    "apiVersion" = "networking.istio.io/v1beta1"
-    "kind"       = "Gateway"
-    "metadata" = {
-      "labels" = {
-        "release" = "istio"
-      }
-      "name"      = "gateway-spinnaker-internal"
-      "namespace" = "istio-system"
-    }
-    "spec" = {
-      "selector" = {
-        "app"   = "ingressgateway-spinnaker"
-        "color" = "green"
-        "istio" = "ingressgateway-spinnaker-internal"
-      }
-      "servers" = [
-        {
-          "hosts" = [
-            "*",
-          ]
-          "port" = {
-            "name"     = "http"
-            "number"   = 80
-            "protocol" = "HTTP"
-          }
-          "tls" = {
-            "httpsRedirect" = true
-          }
-        },
-        {
-          "hosts" = [
-            "*",
-          ]
-          "port" = {
-            "name"     = "https"
-            "number"   = 443
-            "protocol" = "HTTP"
-          }
-        },
-      ]
-    }
-  }
-  field_manager {
-    # force field manager conflicts to be overridden
-    force_conflicts = var.force_conflicts
-  }
-}
-
-resource "kubernetes_manifest" "spinnaker-virtual-service" {
-  manifest = {
-    "apiVersion" = "networking.istio.io/v1beta1"
-    "kind"       = "VirtualService"
-    "metadata" = {
-      "labels" = {
-        "app" = "spinnaker"
-      }
-      "name"      = "spin-gate-internal"
-      "namespace" = "istio-system"
-    }
-    "spec" = {
-      "gateways" = [
-        "gateway-spinnaker-internal",
-      ]
-      "hosts" = [
-        "spinnaker.dev-usw2-dpe-1.us-west-2.dped.planfront.net",
-      ]
-      "http" = [
-        {
-          "match" = [
-            {
-              "uri" = {
-                "regex" = "^/gate[/]?$"
-              }
-            },
-          ]
-          "rewrite" = {
-            "uri" = "/"
-          }
-          "route" = [
-            {
-              "destination" = {
-                "host" = "spin-gate.spinnaker.svc.cluster.local"
-                "port" = {
-                  "number" = 8084
-                }
-              }
-              "weight" = 100
-            },
-          ]
-        },
-        {
-          "match" = [
-            {
-              "uri" = {
-                "prefix" = "/gate/"
-              }
-            },
-          ]
-          "rewrite" = {
-            "uri" = "/"
-          }
-          "route" = [
-            {
-              "destination" = {
-                "host" = "spin-gate.spinnaker.svc.cluster.local"
-                "port" = {
-                  "number" = 8084
-                }
-              }
-              "weight" = 100
-            },
-          ]
-        },
-        {
-          "match" = [
-            {
-              "uri" = {
-                "prefix" = "/auth"
-              }
-            },
-          ]
-          "rewrite" = {
-            "uri" = "/auth"
-          }
-          "route" = [
-            {
-              "destination" = {
-                "host" = "spin-gate.spinnaker.svc.cluster.local"
-                "port" = {
-                  "number" = 8084
-                }
-              }
-              "weight" = 100
-            },
-          ]
-        },
-        {
-          "route" = [
-            {
-              "destination" = {
-                "host" = "spin-deck.spinnaker.svc.cluster.local"
-              }
-              "weight" = 100
-            },
-          ]
-        },
-      ]
-    }
-  }
-  field_manager {
-    # force field manager conflicts to be overridden
-    force_conflicts = var.force_conflicts
-  }
-}
-
-
-
-
 
 locals {
   spinnaker_service_manifest = {
@@ -580,7 +291,7 @@ locals {
                 }
               }
               "spin-clouddriver" = {
-                "replicas" = 8
+                "replicas" = 1
                 "limits" = {
                   "cpu"    = 2
                   "memory" = "12000Mi"
@@ -591,7 +302,7 @@ locals {
                 }
               }
               "spin-orca" = {
-                "replicas" = 4
+                "replicas" = 1
                 "limits" = {
                   "cpu"    = 2
                   "memory" = "6000Mi"
@@ -838,6 +549,12 @@ locals {
           }
           "redis" = {
             "enabled" = "true"
+            "kubernetes" = {
+              "podAnnotations" = {
+                "pg_app"                  = "spin-redis"
+                "sidecar.istio.io/inject" = "false"
+              }
+            }
           }
           "rosco" = {
             "enabled" = "false"
