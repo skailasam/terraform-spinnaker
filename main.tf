@@ -57,6 +57,91 @@ provider "kubernetes" {
   token                  = data.aws_eks_cluster_auth.cluster.token
 }
 
+data "aws_kms_secrets" "secrets" {
+  secret {
+    name    = "datadog-api-key"
+    payload = var.datadog_settings.api_key
+  }
+  secret {
+    name    = "datadog-app-key"
+    payload = var.datadog_settings.application_key
+  }
+  secret {
+    name    = "gcr-password"
+    payload = var.gcr_docker_registry.gcr_password
+  }
+  secret {
+    name    = "saml-keystore"
+    payload = var.spinnaker_saml_files.keystore
+  }
+  secret {
+    name    = "saml-metadata"
+    payload = var.spinnaker_saml_files.metadata
+  }
+  secret {
+    name    = "saml-keystore-pasword"
+    payload = var.spinnaker_saml_settings.keyStorePassword
+  }
+  secret {
+    name = "local-cluster-kubeconfig"
+    payload = var.local_cluster_kubeconfig
+  }
+  secret {
+    name    = "pubsub_creds_json_file"
+    payload = var.gcr_pubsub_settings.pubsub_creds_json_file
+  }
+}
+
+
+resource "kubernetes_secret" "local-cluster-kubeconfig" {
+  metadata {
+    name = "local-cluster-kubeconfig"
+    namespace = "spinnaker"
+  }
+  data = {
+    local-cluster-kubeconfig: base64encode(data.aws_kms_secrets.secrets.plaintext["local-cluster-kubeconfig"])
+  }
+}
+
+resource "kubernetes_secret" "gcr-password" {
+  metadata {
+    name = "gcr-password"
+    namespace = "spinnaker"
+  }
+  data = {
+    gcr-password: base64encode(data.aws_kms_secrets.secrets.plaintext["gcr-password"])
+  }
+}
+
+resource "kubernetes_secret" "pubsub-creds-json" {
+  metadata {
+    name = "pubsub-creds-json"
+    namespace = "spinnaker"
+  }
+  data = {
+    pubsub-creds-json: base64encode(data.aws_kms_secrets.secrets.plaintext["pubsub-creds-json"])
+  }
+}
+
+resource "kubernetes_secret" "saml-keystore" {
+  metadata {
+    name = "saml-keystore"
+    namespace = "spinnaker"
+  }
+  data = {
+    pubsub-creds-json: base64encode(data.aws_kms_secrets.secrets.plaintext["saml-keystore"])
+  }
+}
+
+resource "kubernetes_secret" "saml-metadata" {
+  metadata {
+    name = "saml-metadata"
+    namespace = "spinnaker"
+  }
+  data = {
+    pubsub-creds-json: base64encode(data.aws_kms_secrets.secrets.plaintext["saml-metadata"])
+  }
+}
 
 locals {
   spinnaker_service_manifest = {
@@ -76,13 +161,7 @@ locals {
         "type" = "service"
       }
       "spinnakerConfig" = {
-        "files" = {
-          "${var.spinnaker_saml_settings.keyStore}"      = var.spinnaker_saml_files.keystore
-          "${var.spinnaker_saml_settings.metadataLocal}" = var.spinnaker_saml_files.metadata
-          "gcr_password"                                 = var.gcr_docker_registry.gcr_password
-          "kubeconfig.${var.cluster_name}"               = var.local_cluster_kubeconfig
-          "gcloud-pubsub-creds.json"                     = var.gcr_pubsub_settings.pubsub_creds_json_file
-        }
+        "files" = {}
         "config" = {
           "pubsub" = {
             "google" = {
@@ -90,7 +169,7 @@ locals {
               "subscriptions" = [
                 {
                   "ackDeadlineSeconds" = 10
-                  "jsonPath"           = "gcloud-pubsub-creds.json"
+                  "jsonPath"           = "encryptedFile:k8s!n:${kubernetes_secret.pubsub-creds-json.metadata.name}!k:${kubernetes_secret.pubsub-creds-json.metadata.name}"
                   "messageFormat"      = "GCR"
                   "name"               = "pubsub-spinnaker-plangrid"
                   "project"            = "pg-docker"
@@ -123,8 +202,8 @@ locals {
                   # no need to keep secret - these are trivially vieweable by every engineer in Datadog anyway.
                   # DD does not keep these secret in the first place.
                   {
-                    "apiKey"         = var.datadog_settings.api_key
-                    "applicationKey" = var.datadog_settings.application_key
+                    "apiKey"         = data.aws_kms_secrets.secrets.plaintext["datadog_api_key"]
+                    "applicationKey" = data.aws_kms_secrets.secrets.plaintext["datadog_app_key"]
                     "endpoint" = {
                       "baseUrl" = var.datadog_settings.base_url
                     }
@@ -162,7 +241,7 @@ locals {
           "metricStores" = {
             "datadog" = {
               ## DD Does not keep this secret, already committed in plaintext
-              "api_key" = var.datadog_settings.api_key
+              "api_key" = data.aws_kms_secrets.secrets.plaintext["datadog_api_key"]
               "enabled" = var.datadog_settings.enable_spinnaker_metrics
               "tags" = [
                 "stacker_namespace:${var.stacker_namespace}",
@@ -195,7 +274,7 @@ locals {
                   "cacheIntervalSeconds"    = "600"
                   "email"                   = "fake.email@spinnaker.io"
                   "name"                    = "gcr"
-                  "passwordFile"            = "gcr_password"
+                  "passwordFile"            = "encryptedFile:k8s!n:${kubernetes_secret.gcr-password.metadata.name}!k:${kubernetes_secret.gcr-password.metadata.name}"
                   "requiredGroupMembership" = []
                   "username"                = "_json_key"
                   "repositories"            = []
@@ -229,7 +308,7 @@ locals {
                       "namespaces"  = []
                     },
                   ]
-                  "kubeconfigFile" = "kubeconfig.${var.cluster_name}"
+                  "kubeconfigFile" = "encryptedFile:k8s!n:${kubernetes_secret.local-cluster-kubeconfig.metadata.name}!k:${kubernetes_secret.local-cluster-kubeconfig.metadata.name}"
                   "name"           = "${var.cluster_name}-v2"
                   "namespaces" = [
                     "default",
